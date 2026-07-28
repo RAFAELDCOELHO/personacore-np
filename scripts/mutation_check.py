@@ -24,6 +24,7 @@ GENERATE = ROOT / "engine" / "generate.py"
 CACHE = ROOT / "engine" / "cache.py"
 TESTS_BATCHED = ROOT / "tests" / "test_batched.py"
 SAMPLING = ROOT / "engine" / "sampling.py"
+QUANTIZE = ROOT / "engine" / "quantize.py"
 
 # (id, file, description, original_snippet, mutated_snippet)
 MUTATIONS = [
@@ -299,6 +300,26 @@ MUTATIONS = [
      "    if top_p is not None:\n        x = top_p_filter(x, top_p)",
      "    if top_p is not None:\n        x = top_p_filter(x, top_p)\n"
      "    if top_k is not None and top_k > 0:\n        x = top_k_filter(x, top_k)"),
+
+    # ---- M5: int8 quantization ----
+    ("QT-1", QUANTIZE, "scale from mean(|w|) instead of max(|w|) -- underscales, clips the tails",
+     "        amax = np.abs(weight).max(axis=tuple(range(weight.ndim - 1)), keepdims=True)",
+     "        amax = np.abs(weight).mean(axis=tuple(range(weight.ndim - 1)), keepdims=True)"),
+    ("QT-2", QUANTIZE, "forget the clip to [-127, 127] (silent int8 overflow)",
+     "    q = np.clip(np.rint(weight / scale.astype(np.float64)), -QMAX, QMAX).astype(np.int8)",
+     "    q = np.rint(weight / scale.astype(np.float64)).astype(np.int8)"),
+    ("QT-3", QUANTIZE, "same scale for every channel -- per-channel is per-tensor in disguise",
+     "        amax = np.abs(weight).max(axis=tuple(range(weight.ndim - 1)), keepdims=True)",
+     "        amax = np.abs(weight).max(keepdims=True)"),
+    ("QT-4", QUANTIZE, "eligibility filter ignored -- LayerNorm and biases get quantized too",
+     "    if name.endswith(_LINEAR_WEIGHTS):\n        return True",
+     "    if name.endswith(_LINEAR_WEIGHTS):\n        return True\n    if True:\n        return True"),
+    ("QT-5", QUANTIZE, "floor instead of round-to-nearest -- biases the error downward",
+     "    q = np.clip(np.rint(weight / scale.astype(np.float64)), -QMAX, QMAX).astype(np.int8)",
+     "    q = np.clip(np.floor(weight / scale.astype(np.float64)), -QMAX, QMAX).astype(np.int8)"),
+    ("QT-6", QUANTIZE, "dequantize with the WRONG channel's scale (rolled by one)",
+     "    return q_weight.astype(np.float64) * scale.astype(np.float64)",
+     "    return q_weight.astype(np.float64) * np.roll(scale, 1, axis=-1).astype(np.float64)"),
 ]
 
 
