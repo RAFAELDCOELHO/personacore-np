@@ -238,6 +238,20 @@ MUTATIONS = [
      "            V = np.concatenate([v_prev, v], axis=1)",
      "            K = np.concatenate([k, k_prev], axis=1)\n"
      "            V = np.concatenate([v, v_prev], axis=1)"),
+    # KV-8/KV-9 -- the two EOS mutations proved dead BY HAND at M2 closure but
+    # never added to this reproducible loop. Same expected killer:
+    # test_generate_with_cache_stops_on_real_eos_matches_personacore.
+    ("KV-8", CACHE, "cached path ignores eos_id entirely (hand-checked: +14 extra items)",
+     "        if next_id == eos_id:\n"
+     "            return emitted  # stop WITHOUT appending and WITHOUT emitting.",
+     "        if False:\n"
+     "            return emitted"),
+    ("KV-9", CACHE, "EOS token emitted before stopping (hand-checked: 261 items, +1)",
+     "        if next_id == eos_id:\n"
+     "            return emitted  # stop WITHOUT appending and WITHOUT emitting.",
+     "        if next_id == eos_id:\n"
+     "            emitted.append(next_id)\n"
+     "            return emitted"),
 
     # ---- M3: batching axes ----
     # There is deliberately NO padding-mask mutation family here. With
