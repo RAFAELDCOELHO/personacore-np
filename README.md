@@ -15,11 +15,18 @@ and proven to agree with the PyTorch implementation it mirrors.
 | **M1** | Greedy generation — sliding context window, EOS stop | Generated token ids, exact integer equality |
 | **M2** | Incremental KV-cache, falling back to full recompute once the window slides | Token ids vs. both the no-cache path and PyTorch; cached logits vs. full recompute |
 | **M3** | Batched forward over right-padded sequences | Batched logits vs. the per-sequence forward; padding and cross-row isolation asserted at exactly zero |
+| **M4** | Temperature / top-k / top-p sampling | Structural: formulas by hand, support sets, filter order, entropy monotonicity |
 
-All four complete. **58 tests**, all passing.
+All five complete. **74 tests**, all passing.
 
 Parity is argmax-exact on token ids and ~1e-15 relative on logits — the residual
 is float64 operation-order noise, not approximation.
+
+M4 is the exception, deliberately. numpy's RNG and torch's RNG are different
+algorithms, so no seed makes them draw the same token and chasing an identical
+sample would be chasing a coincidence. Its tests prove structure instead: the
+formula written out by hand, the surviving support after each filter, the order
+the filters compose in, and entropy rising monotonically with temperature.
 
 ### The one thing M2 does not do
 
@@ -56,11 +63,18 @@ the invariant rather than assuming it.
   summed); the assertion sits above it with slack; a second, tighter canary is
   pinned at the value actually measured, to catch drift the loose bound would
   miss. Tolerances are never loosened to make a test pass.
-- **Manual, targeted mutation testing.** `scripts/mutation_check.py` holds **60**
+- **Replicate the source, not the textbook.** Where PersonaCore's sampling
+  diverges from the common convention, this engine follows PersonaCore. Its
+  temperature is floored rather than validated, so `0` and negatives both sharpen
+  instead of raising; its top-k cutoff is a strict `<`, so ties at the boundary
+  push the surviving set past `k`; its nucleus keeps the token that crosses `p`.
+  Each was read off the source and measured against the real torch functions
+  before being written here.
+- **Manual, targeted mutation testing.** `scripts/mutation_check.py` holds **67**
   hand-picked mutations, each attacking a specific architectural decision — ddof,
   eps inside vs. outside the sqrt, attention scale, mask ordering, head reshape,
-  weight tying, crop direction, cache position index, batch-axis bookkeeping.
-  **56 killed, 4 alive**, and every survivor is accounted for:
+  weight tying, crop direction, cache position index, batch-axis bookkeeping,
+  filter order. **63 killed, 4 alive**, and every survivor is accounted for:
 
   | Survivor | Why it lives |
   |---|---|

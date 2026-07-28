@@ -451,7 +451,14 @@ def test_cache_length_reports_zero_for_an_empty_cache(gen_ref, step_fn):
 
 
 def test_generate_with_cache_rejects_sampling_because_m2_is_greedy_only(gen_ref):
-    """`greedy=False` is a scope fence, same as M1 -- not a silent fallback to greedy."""
+    """`greedy=False` still raises here -- the cached path is greedy-only by design.
+
+    No longer "same as M1": M4 gave `engine.generate.generate` real sampling and
+    deliberately did not extend it to this path. So this is not a not-yet-built
+    fence, it is a live asymmetry, and the raise is what keeps a caller from
+    believing the cached loop sampled when it did not. Silent fallback to greedy
+    would be the dangerous alternative.
+    """
     with pytest.raises(NotImplementedError):
         generate_with_cache(
             ListCacheStub(peak_id=1),

@@ -396,20 +396,3 @@ def test_generate_reads_the_last_position_not_the_first(gen_ref):
         block_size=int(gen_ref["block_size"]),
     )
     assert got == [11]
-
-
-def test_generate_rejects_sampling_because_m1_is_greedy_only(gen_ref):
-    """`greedy=False` is a scope fence, not a silent fallback to greedy.
-
-    Sampling arrives in M4. A default that quietly ignored the flag would make a
-    future caller think it was sampling when it was not.
-    """
-    with pytest.raises(NotImplementedError):
-        generate(
-            RecordingStub(peak_id=1),
-            np.array([1, 2], dtype=np.int64),
-            max_new_tokens=1,
-            eos_id=int(gen_ref["eos_id"]),
-            block_size=int(gen_ref["block_size"]),
-            greedy=False,
-        )

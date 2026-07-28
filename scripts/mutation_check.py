@@ -23,6 +23,7 @@ WEIGHTS = ROOT / "engine" / "weights.py"
 GENERATE = ROOT / "engine" / "generate.py"
 CACHE = ROOT / "engine" / "cache.py"
 TESTS_BATCHED = ROOT / "tests" / "test_batched.py"
+SAMPLING = ROOT / "engine" / "sampling.py"
 
 # (id, file, description, original_snippet, mutated_snippet)
 MUTATIONS = [
@@ -273,6 +274,31 @@ MUTATIONS = [
     ("PD-8", TESTS_BATCHED, "test 4 measures the RIGHT leak with left-padding (right side flipped)",
      '    right_delta = leak("right")',
      '    right_delta = leak("left")'),
+
+    # ---- M4: temperature / top-k / top-p ----
+    ("TP-1", SAMPLING, "temperature MULTIPLIES instead of dividing",
+     "    return logits / max(temperature, TEMPERATURE_FLOOR)",
+     "    return logits * max(temperature, TEMPERATURE_FLOOR)"),
+    ("TP-2", GENERATE, "greedy no longer short-circuits -- it falls through to the draw",
+     "        if greedy:\n            next_id = np.argmax(last_logits, axis=-1).item()",
+     "        if False:\n            next_id = np.argmax(last_logits, axis=-1).item()"),
+    ("TK-1", SAMPLING, "top-k off by one (keeps k+1)",
+     "    kth = np.take(np.sort(logits, axis=-1), -k, axis=-1)  # the k-th largest value",
+     "    kth = np.take(np.sort(logits, axis=-1), -(k + 1), axis=-1)"),
+    ("TK-2", SAMPLING, "caller guard for top_k <= 0 removed",
+     "    if top_k is not None and top_k > 0:\n        x = top_k_filter(x, top_k)",
+     "    if top_k is not None:\n        x = top_k_filter(x, top_k)"),
+    ("NP-1", SAMPLING, "nucleus cutoff >= becomes > (exact landing no longer closes it)",
+     "    sorted_mask = cum >= p",
+     "    sorted_mask = cum > p"),
+    ("NP-2", SAMPLING, "nucleus sorts ASCENDING instead of descending",
+     '    order = np.argsort(-logits, axis=-1, kind="stable")',
+     '    order = np.argsort(logits, axis=-1, kind="stable")'),
+    ("NP-3", SAMPLING, "order inverted -- top-p runs BEFORE top-k",
+     "    if top_k is not None and top_k > 0:\n        x = top_k_filter(x, top_k)\n"
+     "    if top_p is not None:\n        x = top_p_filter(x, top_p)",
+     "    if top_p is not None:\n        x = top_p_filter(x, top_p)\n"
+     "    if top_k is not None and top_k > 0:\n        x = top_k_filter(x, top_k)"),
 ]
 
 

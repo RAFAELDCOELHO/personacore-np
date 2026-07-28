@@ -106,9 +106,18 @@ def generate_with_cache(
 
     Returns the list of newly generated ids, prompt excluded. EOS stops the loop
     without being appended or emitted, exactly as in M1.
+
+    ASYMMETRY, deliberate and scoped: M4 gave the no-cache `engine.generate.generate`
+    real sampling (temperature / top-k / top-p / injected rng), and this path did NOT
+    get it. `greedy=False` still raises here. Anyone reaching for sampled generation
+    must use the M1 path today — including through this function's own post-crop
+    fallback, which would otherwise silently sample in the tail and take the argmax in
+    the head. (Same posture as the `cross_entropy` rank asymmetry recorded in M3.)
     """
     if not greedy:
-        raise NotImplementedError("M2 is greedy-only; sampling arrives in M4")
+        raise NotImplementedError(
+            "generate_with_cache is greedy-only; sampling lives in engine.generate.generate"
+        )
 
     idx = np.asarray(idx, dtype=np.int64)
     emitted = []
