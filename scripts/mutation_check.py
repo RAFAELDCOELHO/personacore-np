@@ -21,6 +21,7 @@ ROOT = pathlib.Path(__file__).resolve().parent.parent
 FORWARD = ROOT / "engine" / "forward.py"
 WEIGHTS = ROOT / "engine" / "weights.py"
 GENERATE = ROOT / "engine" / "generate.py"
+CACHE = ROOT / "engine" / "cache.py"
 
 # (id, file, description, original_snippet, mutated_snippet)
 MUTATIONS = [
@@ -208,6 +209,31 @@ MUTATIONS = [
     ("GE-7", GENERATE, "crop from the WRONG END (oldest tokens kept instead of newest)",
      "        idx_cond = idx[-block_size:] if idx.shape[0] > block_size else idx",
      "        idx_cond = idx[:block_size] if idx.shape[0] > block_size else idx"),
+
+    # ---- M2: incremental KV-cache ----
+    ("KV-1", CACHE, "off-by-one: position = cache length AFTER insert, not before",
+     "            logits, cache = forward_step_fn(int(idx[position]), position, cache)",
+     "            logits, cache = forward_step_fn(int(idx[position]), position + 1, cache)"),
+    ("KV-2", CACHE, "remove the full-recompute fallback (cache grows past block_size)",
+     "        if idx.shape[0] > block_size:",
+     "        if False:"),
+    ("KV-3", CACHE, "fall back one step too early (>= instead of >)",
+     "        if idx.shape[0] > block_size:",
+     "        if idx.shape[0] >= block_size:"),
+    ("KV-4", CACHE, "K concatenated in the wrong order (new before old), V left alone",
+     "            K = np.concatenate([k_prev, k], axis=1)  # old first, new last",
+     "            K = np.concatenate([k, k_prev], axis=1)  # old first, new last"),
+    ("KV-5", CACHE, "incremental causal mask leaks the future -- NO TARGET, see report",
+     "causal = np.tril(np.ones((T, T), dtype=bool))",
+     "causal = np.triu(np.ones((T, T), dtype=bool))"),
+    ("KV-6", CACHE, "the new token cannot attend to itself (its own key masked out)",
+     "        att = softmax(att, axis=-1)",
+     "        att[..., -1] = -np.inf\n        att = softmax(att, axis=-1)"),
+    ("KV-7", CACHE, "K AND V both reversed consistently (predicted equivalent)",
+     "            K = np.concatenate([k_prev, k], axis=1)  # old first, new last\n"
+     "            V = np.concatenate([v_prev, v], axis=1)",
+     "            K = np.concatenate([k, k_prev], axis=1)\n"
+     "            V = np.concatenate([v, v_prev], axis=1)"),
 ]
 
 
