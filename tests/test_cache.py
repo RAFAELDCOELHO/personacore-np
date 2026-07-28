@@ -100,7 +100,9 @@ pytestmark = pytest.mark.skipif(
         and os.path.exists(PARITY_FIXTURE)
         and os.path.exists(EOS_FIXTURE)
     ),
-    reason="fixtures missing (symlink to ~/tensorforge/fixtures)",
+    reason="fixtures/*.npz not found — generate them with "
+    "tensorforge/scripts/gen_parity_fixture.py, gen_generate_fixture.py and "
+    "gen_eos_fixture.py against a trained PersonaCore checkpoint (see README)",
 )
 
 N_HEAD = 6

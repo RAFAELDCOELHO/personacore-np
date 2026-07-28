@@ -93,7 +93,9 @@ FIXTURE = os.path.join(os.path.dirname(__file__), os.pardir, "fixtures", "person
 
 pytestmark = pytest.mark.skipif(
     not os.path.exists(FIXTURE),
-    reason="fixtures/personacore_parity.npz missing (symlink to ~/tensorforge/fixtures)",
+    reason="fixtures/personacore_parity.npz not found — generate it with "
+    "tensorforge/scripts/gen_parity_fixture.py against a trained PersonaCore "
+    "checkpoint (see README)",
 )
 
 VOCAB, N_EMBD, N_HEAD, N_LAYER, BLOCK = 8192, 384, 6, 6, 256
