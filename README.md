@@ -14,8 +14,9 @@ and proven to agree with the PyTorch implementation it mirrors.
 | **M0** | Forward pass — LayerNorm, GELU, causal attention, MLP, tied `lm_head`, cross-entropy | Logits and loss vs. a frozen PyTorch reference, float64 |
 | **M1** | Greedy generation — sliding context window, EOS stop | Generated token ids, exact integer equality |
 | **M2** | Incremental KV-cache, falling back to full recompute once the window slides | Token ids vs. both the no-cache path and PyTorch; cached logits vs. full recompute |
+| **M3** | Batched forward over right-padded sequences | Batched logits vs. the per-sequence forward; padding and cross-row isolation asserted at exactly zero |
 
-All three complete. **46 tests**, all passing.
+All four complete. **58 tests**, all passing.
 
 Parity is argmax-exact on token ids and ~1e-15 relative on logits — the residual
 is float64 operation-order noise, not approximation.
@@ -31,6 +32,19 @@ cache costs a full forward anyway. So the cache runs while the window fits in
 That is a property of the model, not a defect in the cache. The derivation, with
 the measured evidence, is in the module docstring of `tests/test_cache.py`.
 
+### And the one thing M3 does not need
+
+Batching pads sequences to a rectangle, which normally calls for a padding mask:
+zeroing a pad token's value is not enough, because `exp(score_pad)` stays in the
+shared softmax denominator and dilutes the weights on the real tokens.
+
+With **right**-padding that cannot happen. Every pad position sits in the future
+of every real query, so the causal mask already blocks it — measured on the real
+checkpoint, rewriting the padding with arbitrary tokens moves the real logits by
+exactly `0.000e+00`. Under left-padding the same perturbation moves them by
+`7.399e-01`. So there is no padding mask here, and `tests/test_batched.py` proves
+the invariant rather than assuming it.
+
 ## Discipline
 
 - **TDD, red-first.** Every test was watched failing before the code existed.
@@ -42,17 +56,23 @@ the measured evidence, is in the module docstring of `tests/test_cache.py`.
   summed); the assertion sits above it with slack; a second, tighter canary is
   pinned at the value actually measured, to catch drift the loose bound would
   miss. Tolerances are never loosened to make a test pass.
-- **Manual, targeted mutation testing.** `scripts/mutation_check.py` holds **54**
+- **Manual, targeted mutation testing.** `scripts/mutation_check.py` holds **60**
   hand-picked mutations, each attacking a specific architectural decision — ddof,
   eps inside vs. outside the sqrt, attention scale, mask ordering, head reshape,
-  weight tying, crop direction, cache position index. **51 killed, 3 alive**, and
-  every survivor is accounted for:
+  weight tying, crop direction, cache position index, batch-axis bookkeeping.
+  **56 killed, 4 alive**, and every survivor is accounted for:
 
   | Survivor | Why it lives |
   |---|---|
   | `GE-3` | Dead store — appends to a local immediately before a `return` that never reads it |
   | `KV-5` | No target. There is no causal mask in the cache path, because everything cached is strictly past. The recurring SKIP is the assertion |
   | `KV-7` | Provably equivalent: attention is a permutation-invariant weighted sum, and position is baked into K,V at creation. Measured diff 4.4e-15, identical argmax |
+  | `PD-6` | No target. Cross-row isolation is not enforced by a line of code — it is what `@` means on arrays with leading axes |
+
+  Two of the mutations target a *test* rather than the engine, because the one
+  test whose job is to detect a difference between two configurations is the one
+  that could silently compare something to itself. Both survived on the first
+  run and exposed a real gap, which is what they were for.
 
   Run it with `python scripts/mutation_check.py`. It skips two long parity tests,
   measured beforehand to be the sole killer of nothing.
@@ -64,9 +84,9 @@ pip install -e ".[dev]"
 pytest
 ```
 
-Without fixtures (see below) this gives `13 passed, 33 skipped` — the pure-NumPy
-unit tests run, and the parity tests skip with a message naming the generator to
-run. Nothing fails, nothing errors.
+Without fixtures (see below) the pure-NumPy unit tests still run and the parity
+tests skip with a message naming the generator to run. Nothing fails, nothing
+errors.
 
 ## Reproducing the parity suite
 

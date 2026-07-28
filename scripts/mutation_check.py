@@ -22,6 +22,7 @@ FORWARD = ROOT / "engine" / "forward.py"
 WEIGHTS = ROOT / "engine" / "weights.py"
 GENERATE = ROOT / "engine" / "generate.py"
 CACHE = ROOT / "engine" / "cache.py"
+TESTS_BATCHED = ROOT / "tests" / "test_batched.py"
 
 # (id, file, description, original_snippet, mutated_snippet)
 MUTATIONS = [
@@ -66,14 +67,14 @@ MUTATIONS = [
 
     # ---- Attention: scale ----
     ("AT-1", FORWARD, "scale 1/sqrt(d_head) -> 1/sqrt(n_embd)",
-     "att = (q @ k.transpose(0, 2, 1)) / np.sqrt(d_head)",
-     "att = (q @ k.transpose(0, 2, 1)) / np.sqrt(C)"),
+     "att = (q @ np.swapaxes(k, -1, -2)) / np.sqrt(d_head)",
+     "att = (q @ np.swapaxes(k, -1, -2)) / np.sqrt(C)"),
     ("AT-2", FORWARD, "divide -> multiply by the scale",
-     "att = (q @ k.transpose(0, 2, 1)) / np.sqrt(d_head)",
-     "att = (q @ k.transpose(0, 2, 1)) * np.sqrt(d_head)"),
+     "att = (q @ np.swapaxes(k, -1, -2)) / np.sqrt(d_head)",
+     "att = (q @ np.swapaxes(k, -1, -2)) * np.sqrt(d_head)"),
     ("AT-3", FORWARD, "remove the scale entirely",
-     "att = (q @ k.transpose(0, 2, 1)) / np.sqrt(d_head)",
-     "att = q @ k.transpose(0, 2, 1)"),
+     "att = (q @ np.swapaxes(k, -1, -2)) / np.sqrt(d_head)",
+     "att = q @ np.swapaxes(k, -1, -2)"),
 
     # ---- Attention: mask ----
     ("MK-1", FORWARD, "remove the causal mask",
@@ -91,14 +92,14 @@ MUTATIONS = [
 
     # ---- Attention: heads / projections ----
     ("HD-1", FORWARD, "split_heads without transpose (wrong interleaving)",
-     "return a.reshape(T, n_head, d_head).transpose(1, 0, 2)",
-     "return a.reshape(n_head, T, d_head)"),
+     "return np.swapaxes(a.reshape(*lead, T, n_head, d_head), -3, -2)",
+     "return a.reshape(*lead, n_head, T, d_head)"),
     ("HD-2", FORWARD, "head merge without transpose",
-     "y = y.transpose(1, 0, 2).reshape(T, C)",
-     "y = y.reshape(T, C)"),
+     "y = np.swapaxes(y, -3, -2).reshape(*lead, T, C)",
+     "y = y.reshape(*lead, T, C)"),
     ("HD-3", FORWARD, "q and k swapped",
-     "att = (q @ k.transpose(0, 2, 1)) / np.sqrt(d_head)",
-     "att = (k @ q.transpose(0, 2, 1)) / np.sqrt(d_head)"),
+     "att = (q @ np.swapaxes(k, -1, -2)) / np.sqrt(d_head)",
+     "att = (k @ np.swapaxes(q, -1, -2)) / np.sqrt(d_head)"),
     ("HD-4", FORWARD, "drop the c_proj bias",
      'return y @ p[prefix + "c_proj.weight"] + p[prefix + "c_proj.bias"]',
      'return y @ p[prefix + "c_proj.weight"]'),
@@ -234,6 +235,44 @@ MUTATIONS = [
      "            V = np.concatenate([v_prev, v], axis=1)",
      "            K = np.concatenate([k, k_prev], axis=1)\n"
      "            V = np.concatenate([v, v_prev], axis=1)"),
+
+    # ---- M3: batching axes ----
+    # There is deliberately NO padding-mask mutation family here. With
+    # right-padding the causal mask already blocks every pad key from every real
+    # query, so a padding mask would be dead code and mutating it would prove
+    # nothing. The derivation and the measurement (perturbation = 0.000e+00) are
+    # in tests/test_batched.py. What IS mutable is the axis bookkeeping below.
+    ("BT-1", FORWARD, "sequence length read from the FIRST axis, not the last",
+     "    T = idx.shape[-1]  # LAST axis — anything before it is a batch axis.",
+     "    T = idx.shape[0]"),
+    ("BT-2", FORWARD, "head split swaps the wrong pair of axes",
+     "        return np.swapaxes(a.reshape(*lead, T, n_head, d_head), -3, -2)",
+     "        return np.swapaxes(a.reshape(*lead, T, n_head, d_head), -2, -1)"),
+    ("BT-3", FORWARD, "K transposed on the head axis instead of the last two",
+     "    att = (q @ np.swapaxes(k, -1, -2)) / np.sqrt(d_head)",
+     "    att = (q @ np.swapaxes(k, -3, -2)) / np.sqrt(d_head)"),
+
+    # PD-6 — batch rows attending to each other. NO TARGET, and that absence is
+    # the proof: isolation is not enforced by any line, it is what `@` MEANS on
+    # arrays with leading axes. numpy batches the matmul over every axis before
+    # the last two, so row b's queries can only ever meet row b's keys; there is
+    # no subscript, no index and no reshape that mixes them. Same posture as
+    # KV-5 in M2 — the recurring SKIP documents the property, and it breaks the
+    # day someone flattens B into T.
+    ("PD-6", FORWARD, "batch rows attend to each other -- NO TARGET, see report",
+     "    att = einsum_over_batch_and_position(q, k)",
+     "    att = einsum_mixing_batch_rows(q, k)"),
+
+    # PD-7/PD-8 — mutate the TEST, not the engine. test_left_padding_would_leak
+    # is the only test whose job is to detect a DIFFERENCE between two paddings,
+    # so it is the only one that could silently pass by comparing something to
+    # itself. Flipping each side in turn proves it discriminates both ways.
+    ("PD-7", TESTS_BATCHED, "test 4 measures the LEFT leak with right-padding (left side flipped)",
+     '    left_delta = leak("left")',
+     '    left_delta = leak("right")'),
+    ("PD-8", TESTS_BATCHED, "test 4 measures the RIGHT leak with left-padding (right side flipped)",
+     '    right_delta = leak("right")',
+     '    right_delta = leak("left")'),
 ]
 
 

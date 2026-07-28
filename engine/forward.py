@@ -45,30 +45,42 @@ def softmax(x, axis=-1):
 
 
 def attention(x, p, prefix, n_head):
-    """Multi-head causal self-attention. x: (T, C) -> (T, C)."""
-    T, C = x.shape
+    """Multi-head causal self-attention. x: (..., T, C) -> (..., T, C).
+
+    Rank-generic over LEADING axes: ``(T, C)`` for one sequence, ``(B, T, C)`` for
+    a batch. Written with negative axis indices so the single-sequence path stays
+    the exact operation M0 shipped — on a 3-D array ``swapaxes(-3, -2)`` IS
+    ``transpose(1, 0, 2)`` and ``swapaxes(-1, -2)`` IS ``transpose(0, 2, 1)``.
+
+    The batch axis is a broadcast dimension, never a contraction one: ``@``
+    batches over leading axes independently, so row b's queries only ever meet
+    row b's keys. There is no padding mask, because with right-padding there is
+    nothing for one to do — derivation in tests/test_batched.py.
+    """
+    *lead, T, C = x.shape
     d_head = C // n_head
 
     def project(name):
         return x @ p[prefix + name + ".weight"] + p[prefix + name + ".bias"]
 
     def split_heads(a):
-        return a.reshape(T, n_head, d_head).transpose(1, 0, 2)  # (n_head, T, d_head)
+        # (..., T, C) -> (..., T, n_head, d_head) -> (..., n_head, T, d_head)
+        return np.swapaxes(a.reshape(*lead, T, n_head, d_head), -3, -2)
 
     q = split_heads(project("q_proj"))
     k = split_heads(project("k_proj"))
     v = split_heads(project("v_proj"))
 
     # Scale 1/sqrt(d_head) AFTER the matmul, and d_head (64), not n_embd (384).
-    att = (q @ k.transpose(0, 2, 1)) / np.sqrt(d_head)
+    att = (q @ np.swapaxes(k, -1, -2)) / np.sqrt(d_head)
 
     # Mask BEFORE the softmax: the future becomes -inf and comes out zeroed by exp.
     causal = np.tril(np.ones((T, T), dtype=bool))
     att = np.where(causal, att, -np.inf)
     att = softmax(att, axis=-1)
 
-    y = att @ v  # (n_head, T, d_head)
-    y = y.transpose(1, 0, 2).reshape(T, C)  # head0[0:64], head1[64:128], ...
+    y = att @ v  # (..., n_head, T, d_head)
+    y = np.swapaxes(y, -3, -2).reshape(*lead, T, C)  # head0[0:64], head1[64:128], ...
     return y @ p[prefix + "c_proj.weight"] + p[prefix + "c_proj.bias"]
 
 
@@ -90,14 +102,19 @@ def block(x, p, i, n_head):
 
 
 def gpt_forward(idx, params, n_head=6):
-    """(T,) of ids -> (T, vocab) of logits.
+    """(T,) of ids -> (T, vocab) of logits; (B, T) -> (B, T, vocab).
 
     The position is the index WITHIN the window (0..T-1), not the absolute
     position in a longer sequence — that is what `wpe[:T]` encodes, and it is
     what PersonaCore does after cropping the context to block_size.
+
+    A leading batch axis is optional and is NOT promoted: a 1-D call still
+    returns 2-D, which is what M1's and M2's generation loops read. Batched rows
+    must be RIGHT-padded so real tokens keep positions 0..T_real-1; `wpe` is
+    absolute, so left-padding would shift every real token onto the wrong row.
     """
     idx = np.asarray(idx)
-    T = idx.shape[0]
+    T = idx.shape[-1]  # LAST axis — anything before it is a batch axis.
 
     x = params["wte.weight"][idx] + params["wpe.weight"][:T]
 
