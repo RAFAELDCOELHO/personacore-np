@@ -20,6 +20,7 @@ import sys
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 FORWARD = ROOT / "engine" / "forward.py"
 WEIGHTS = ROOT / "engine" / "weights.py"
+GENERATE = ROOT / "engine" / "generate.py"
 
 # (id, file, description, original_snippet, mutated_snippet)
 MUTATIONS = [
@@ -44,21 +45,21 @@ MUTATIONS = [
      "return x / np.sqrt(var + eps) * weight + bias"),
 
     # ---- GELU ----
-    ("GE-1", FORWARD, "tanh-approx -> erf (the wrong formula for this checkpoint)",
+    ("GL-1", FORWARD, "tanh-approx -> erf (the wrong formula for this checkpoint)",
      "    inner = np.sqrt(2.0 / np.pi) * (x + GELU_COEFF * x**3)\n"
      "    return 0.5 * x * (1.0 + np.tanh(inner))",
      "    import math\n"
      "    return 0.5 * x * (1.0 + np.vectorize(math.erf)(x / np.sqrt(2.0)))"),
-    ("GE-2", FORWARD, "cubic coefficient 0.044715 -> 0.0",
+    ("GL-2", FORWARD, "cubic coefficient 0.044715 -> 0.0",
      "GELU_COEFF = 0.044715",
      "GELU_COEFF = 0.0"),
-    ("GE-3", FORWARD, "factor 0.5 -> 1.0",
+    ("GL-3", FORWARD, "factor 0.5 -> 1.0",
      "return 0.5 * x * (1.0 + np.tanh(inner))",
      "return 1.0 * x * (1.0 + np.tanh(inner))"),
-    ("GE-4", FORWARD, "sqrt(2/pi) -> 1.0",
+    ("GL-4", FORWARD, "sqrt(2/pi) -> 1.0",
      "inner = np.sqrt(2.0 / np.pi) * (x + GELU_COEFF * x**3)",
      "inner = 1.0 * (x + GELU_COEFF * x**3)"),
-    ("GE-5", FORWARD, "gelu -> relu",
+    ("GL-5", FORWARD, "gelu -> relu",
      "return 0.5 * x * (1.0 + np.tanh(inner))",
      "return np.maximum(x, 0.0)"),
 
@@ -168,6 +169,45 @@ MUTATIONS = [
     ("WT-4", WEIGHTS, "transpose wte TOO (over-transpose)",
      "        if name.endswith(_LINEAR_WEIGHTS):\n            w = w.T",
      "        if name.endswith(_LINEAR_WEIGHTS) or name == 'wte.weight':\n            w = w.T"),
+
+    # ---- M1: greedy generation loop ----
+    ("GE-1", GENERATE, "remove the context crop entirely",
+     "        idx_cond = idx[-block_size:] if idx.shape[0] > block_size else idx",
+     "        idx_cond = idx"),
+    ("GE-2", GENERATE, "invert the crop condition (crops when it should not, and vice versa)",
+     "        idx_cond = idx[-block_size:] if idx.shape[0] > block_size else idx",
+     "        idx_cond = idx[-block_size:] if idx.shape[0] <= block_size else idx"),
+    ("GE-3", GENERATE, "EOS-stop appends to idx BEFORE checking",
+     "        if next_id == eos_id:\n"
+     "            return emitted  # stop WITHOUT appending and WITHOUT emitting.\n"
+     "\n"
+     "        idx = np.append(idx, next_id)\n"
+     "        emitted.append(next_id)",
+     "        idx = np.append(idx, next_id)\n"
+     "        if next_id == eos_id:\n"
+     "            return emitted\n"
+     "\n"
+     "        emitted.append(next_id)"),
+    ("GE-4", GENERATE, "EOS-stop emits BEFORE checking",
+     "        if next_id == eos_id:\n"
+     "            return emitted  # stop WITHOUT appending and WITHOUT emitting.\n"
+     "\n"
+     "        idx = np.append(idx, next_id)\n"
+     "        emitted.append(next_id)",
+     "        emitted.append(next_id)\n"
+     "        if next_id == eos_id:\n"
+     "            return emitted\n"
+     "\n"
+     "        idx = np.append(idx, next_id)"),
+    ("GE-5", GENERATE, "read the FIRST logits position instead of the last",
+     "        last_logits = logits[..., -1, :]",
+     "        last_logits = logits[..., 0, :]"),
+    ("GE-6", GENERATE, "argmax on the wrong axis",
+     "        next_id = np.argmax(last_logits, axis=-1).item()",
+     "        next_id = np.argmax(last_logits, axis=0).item()"),
+    ("GE-7", GENERATE, "crop from the WRONG END (oldest tokens kept instead of newest)",
+     "        idx_cond = idx[-block_size:] if idx.shape[0] > block_size else idx",
+     "        idx_cond = idx[:block_size] if idx.shape[0] > block_size else idx"),
 ]
 
 
