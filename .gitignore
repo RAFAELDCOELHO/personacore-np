@@ -2,3 +2,10 @@ __pycache__/
 *.pyc
 .pytest_cache/
 .venv/
+
+# Local symlink to ~/tensorforge/fixtures. NOT a directory in this repo, so no
+# trailing slash -- "fixtures/" would not match a symlink. Untracked on purpose:
+# the .npz oracles are 90+ MB and derive from a private PersonaCore checkpoint,
+# and the link itself is an absolute path into one machine's home. A clean clone
+# simply has no fixtures/, and the parity tests skip instead of failing.
+fixtures

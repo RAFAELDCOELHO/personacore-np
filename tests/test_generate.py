@@ -38,9 +38,14 @@ from engine.weights import load_weights
 _FIXTURE_DIR = os.path.join(os.path.dirname(__file__), os.pardir, "fixtures")
 GEN_FIXTURE = os.path.join(_FIXTURE_DIR, "personacore_generate_fixture.npz")
 PARITY_FIXTURE = os.path.join(_FIXTURE_DIR, "personacore_parity.npz")
+EOS_FIXTURE = os.path.join(_FIXTURE_DIR, "personacore_eos_fixture.npz")
 
 pytestmark = pytest.mark.skipif(
-    not (os.path.exists(GEN_FIXTURE) and os.path.exists(PARITY_FIXTURE)),
+    not (
+        os.path.exists(GEN_FIXTURE)
+        and os.path.exists(PARITY_FIXTURE)
+        and os.path.exists(EOS_FIXTURE)
+    ),
     reason="fixtures missing (symlink to ~/tensorforge/fixtures)",
 )
 
@@ -51,6 +56,11 @@ VOCAB = 8192
 @pytest.fixture(scope="module")
 def gen_ref():
     return np.load(GEN_FIXTURE)
+
+
+@pytest.fixture(scope="module")
+def eos_ref():
+    return np.load(EOS_FIXTURE)
 
 
 @pytest.fixture(scope="module")
@@ -140,8 +150,17 @@ def test_generate_matches_personacore_short(gen_ref, real_forward):
 # ------------------------------------------------- (2) long parity, crosses block_size
 
 
+@pytest.mark.slow
 def test_generate_matches_personacore_crosses_block_size(gen_ref, real_forward):
     """280 greedy tokens, total 290 — the crop fires on every step from 247 on.
+
+    Marked `slow`: it stays in the normal suite but is excluded from the mutation
+    loop, which reruns the whole suite 54 times. Measured BEFORE excluding it: it
+    participates in 32 of the 51 kills and is the SOLE killer of none, so the
+    loop's kill count is unchanged. With both slow tests gone the thinnest
+    dependant is GE-7 (crop from the wrong end), which drops from 3 killers to 1
+    and stays covered by
+    `test_generate_position_embedding_uses_window_index_after_crop`.
 
     Deliberately NOT skipped as redundant with the short test: different length,
     different window regime. Removing the crop makes the window grow past 256 and
@@ -237,6 +256,41 @@ def test_generate_stops_on_eos_without_appending_or_yielding(gen_ref):
     assert got == [123], "EOS must stop after exactly one emitted token"
     assert eos_id not in got
     assert stub.calls == 2, "the loop must stop on the EOS call, not keep going"
+
+
+def test_generate_stops_on_real_eos_matches_personacore(eos_ref, real_forward):
+    """EOS-stop against the real checkpoint, not a stub. Exact integer equality.
+
+    Every other EOS test in this file drives a synthetic stub, so until this
+    fixture existed the EOS path had never been compared to PyTorch in ANY
+    milestone -- both generation fixtures ran out of budget instead of stopping.
+
+    The fixture uses an ARTIFICIAL eos_id (261, a token the model actually emits
+    at step 16) because the real one (8184) is never the argmax in a short window.
+    `generate` treats eos_id as a pure stop comparison on both sides, so swapping
+    it changes no logit -- it only decides where the loop ends.
+
+    The `len(got) < max_new` assertion is what makes this a real EOS test rather
+    than a second copy of the short-parity test: without it, an implementation
+    that ignored eos_id entirely would still match on the first 16 tokens and
+    only differ in the 14 it kept generating.
+    """
+    prompt = eos_ref["prompt_ids"]
+    expected = eos_ref["generated_ids"].tolist()
+    eos_id = int(eos_ref["artificial_eos_id"])
+    max_new = int(eos_ref["max_new_tokens"])
+
+    got = generate(
+        real_forward,
+        prompt,
+        max_new_tokens=max_new,
+        eos_id=eos_id,
+        block_size=int(eos_ref["block_size"]),
+    )
+
+    assert got == expected
+    assert len(got) == int(eos_ref["eos_step"]) < max_new, "this run did not stop early"
+    assert eos_id not in got, "EOS must not be emitted"
 
 
 def test_generate_runs_to_max_new_tokens_when_eos_never_comes(gen_ref):

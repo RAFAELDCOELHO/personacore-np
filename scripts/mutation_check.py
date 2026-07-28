@@ -238,9 +238,20 @@ MUTATIONS = [
 
 
 def run_suite():
-    """Run the suite. Returns (passed, names of the tests that failed)."""
+    """Run the suite MINUS the slow tests. Returns (passed, names of failures).
+
+    `-m "not slow"` drops the two 280-token parity runs, which are ~90% of the
+    suite's wall-clock and get paid for 55 times here (baseline + 54 mutants):
+    11:26 becomes about a minute and a half.
+
+    This is a measured exclusion, not a guess. The full run WITH them killed 51 of
+    54; they participate in 32 and 35 of those kills respectively and are the SOLE
+    killer of NONE, so nothing here loses its last line of defence. They still run
+    in the normal `pytest` invocation. If a future mutant's only killer turns out
+    to be a slow test, this flag has to go -- re-measure before assuming it holds.
+    """
     proc = subprocess.run(
-        [sys.executable, "-m", "pytest", "-q", "--tb=no", "-rf"],
+        [sys.executable, "-m", "pytest", "-q", "--tb=no", "-rf", "-m", "not slow"],
         cwd=ROOT, capture_output=True, text=True,
     )
     failed = [
@@ -274,7 +285,10 @@ def main():
             print(f"{mid:6} SURVIVED {path.name}: {desc}")
             survivors.append((mid, desc, ""))
         else:
-            print(f"{mid:6} killed   {path.name}: {desc}  <- {', '.join(failed[:3])}")
+            # ALL killers, not the first 3: deciding whether a test can be
+            # dropped from the loop requires knowing whether it is some mutant's
+            # ONLY killer, and a truncated list cannot answer that.
+            print(f"{mid:6} killed   {path.name}: {desc}  <- {', '.join(failed)}")
 
     killed = len(MUTATIONS) - len(survivors)
     print(f"\n{killed}/{len(MUTATIONS)} killed, {len(survivors)} alive")

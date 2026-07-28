@@ -92,9 +92,14 @@ from engine.weights import load_weights
 _FIXTURE_DIR = os.path.join(os.path.dirname(__file__), os.pardir, "fixtures")
 GEN_FIXTURE = os.path.join(_FIXTURE_DIR, "personacore_generate_fixture.npz")
 PARITY_FIXTURE = os.path.join(_FIXTURE_DIR, "personacore_parity.npz")
+EOS_FIXTURE = os.path.join(_FIXTURE_DIR, "personacore_eos_fixture.npz")
 
 pytestmark = pytest.mark.skipif(
-    not (os.path.exists(GEN_FIXTURE) and os.path.exists(PARITY_FIXTURE)),
+    not (
+        os.path.exists(GEN_FIXTURE)
+        and os.path.exists(PARITY_FIXTURE)
+        and os.path.exists(EOS_FIXTURE)
+    ),
     reason="fixtures missing (symlink to ~/tensorforge/fixtures)",
 )
 
@@ -121,6 +126,11 @@ LOGITS_CANARY = 1e-14
 @pytest.fixture(scope="module")
 def gen_ref():
     return np.load(GEN_FIXTURE)
+
+
+@pytest.fixture(scope="module")
+def eos_ref():
+    return np.load(EOS_FIXTURE)
 
 
 @pytest.fixture(scope="module")
@@ -225,8 +235,14 @@ def test_cache_matches_no_cache_within_block_size(gen_ref, step_fn, full_fn):
 # ------------------------------------------- (2) parity crossing block_size
 
 
+@pytest.mark.slow
 def test_cache_matches_no_cache_crossing_block_size(gen_ref, step_fn, full_fn):
     """280 tokens, total 290 -- incremental until 256, then delegated to M1.
+
+    Marked `slow`: stays in the normal suite, excluded from the mutation loop.
+    Measured BEFORE excluding it: it participates in 35 of the 51 kills and is the
+    SOLE killer of none. With both slow tests gone, the mutants it covered most
+    thinly are GE-1, GE-2 and KV-2, which keep 2 killers each.
 
     Two regimes in one run, so this is the test that proves the HANDOVER is
     exact: the fallback has to pick up the sequence in the state the cache left
@@ -244,6 +260,39 @@ def test_cache_matches_no_cache_crossing_block_size(gen_ref, step_fn, full_fn):
 
     assert len(prompt) + max_new > block_size, "this run does not cross block_size -- bad fixture"
     assert cached == gen_ref["long_generated_ids"].tolist()
+
+
+# ------------------------------------------ (2b) EOS-stop parity, cached path
+
+
+def test_generate_with_cache_stops_on_real_eos_matches_personacore(eos_ref, step_fn, full_fn):
+    """The same real-EOS fixture, through the cached path. Exact integer equality.
+
+    Not redundant with the M1 twin: the EOS check lives in a DIFFERENT loop here.
+    `generate_with_cache` owns its own copy of "argmax, compare to eos_id, return
+    before appending", and a bug in that copy -- returning after the append,
+    comparing against the wrong variable, checking before the prefill catches up
+    -- would be invisible to every M1 test and to every other test in this file,
+    since none of them ever reach an EOS.
+
+    Stop at step 16 with block_size=256 means the whole run stays in the cached
+    regime, so this is specifically the incremental loop's EOS handling under
+    test, not the fallback's (the fallback's is M1's, already covered by the twin).
+    """
+    prompt = eos_ref["prompt_ids"]
+    expected = eos_ref["generated_ids"].tolist()
+    eos_id = int(eos_ref["artificial_eos_id"])
+    max_new = int(eos_ref["max_new_tokens"])
+    block_size = int(eos_ref["block_size"])
+
+    got = generate_with_cache(
+        step_fn, full_fn, prompt, max_new_tokens=max_new, eos_id=eos_id, block_size=block_size
+    )
+
+    assert got == expected
+    assert len(got) == int(eos_ref["eos_step"]) < max_new, "this run did not stop early"
+    assert eos_id not in got, "EOS must not be emitted"
+    assert len(prompt) + max_new <= block_size, "this run left the cached regime -- wrong fixture"
 
 
 # ---------------------------------------------- (3) the off-by-one, isolated
