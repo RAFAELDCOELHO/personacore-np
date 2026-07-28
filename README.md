@@ -17,8 +17,9 @@ and proven to agree with the PyTorch implementation it mirrors.
 | **M3** | Batched forward over right-padded sequences | Batched logits vs. the per-sequence forward; padding and cross-row isolation asserted at exactly zero |
 | **M4** | Temperature / top-k / top-p sampling | Structural: formulas by hand, support sets, filter order, entropy monotonicity |
 | **M5** | Int8 weight quantization — symmetric, per-channel, fake-quant | Measurement with control: perplexity vs. baseline vs. a deliberately coarse int4 scheme |
+| **M6** | MLX (Metal GPU) port of the forward, f32 | Transitive parity vs. the NumPy engine (1.2e-6, argmax-exact) + measured 15x wall-clock speedup |
 
-All six complete. **81 tests**, all passing.
+All seven complete. **86 tests**, all passing.
 
 Parity is argmax-exact on token ids and ~1e-15 relative on logits — the residual
 is float64 operation-order noise, not approximation.
@@ -53,6 +54,20 @@ exactly `0.000e+00`. Under left-padding the same perturbation moves them by
 `7.399e-01`. So there is no padding mask here, and `tests/test_batched.py` proves
 the invariant rather than assuming it.
 
+### What M6 adds — and deliberately does not
+
+`engine/forward_mlx.py` is a 1:1 port of the forward to MLX (Apple Metal GPU),
+float32 because Metal has no float64. Its oracle is the NumPy engine itself —
+already proven against PyTorch — so parity is transitive and PyTorch is never
+re-tested. Measured on an M3 Pro: relative error 1.2e-6 against NumPy f64
+(the derived f32 estimate was 1.3e-4; the same LayerNorm damping M0 measured
+pushed it ~100x lower), argmax identical at all 256 positions, and the
+256-token forward drops from 63.1 ms (NumPy f64 CPU) to 4.2 ms — **15x**.
+Only the pure forward is ported: cache and sampling are light bookkeeping
+that the GPU would not accelerate, and they stay in NumPy. `mlx` is an
+optional extra (`pip install -e ".[mlx]"`); without it the MLX tests skip
+cleanly and nothing else changes.
+
 ### How M5 proves quality without a formula
 
 Quantization error has no analytic tolerance the way float accumulation does,
@@ -83,12 +98,12 @@ eligible tensors, 7.83x on the whole model.
   push the surviving set past `k`; its nucleus keeps the token that crosses `p`.
   Each was read off the source and measured against the real torch functions
   before being written here.
-- **Manual, targeted mutation testing.** `scripts/mutation_check.py` holds **73**
+- **Manual, targeted mutation testing.** `scripts/mutation_check.py` holds **76**
   hand-picked mutations, each attacking a specific architectural decision — ddof,
   eps inside vs. outside the sqrt, attention scale, mask ordering, head reshape,
   weight tying, crop direction, cache position index, batch-axis bookkeeping,
-  filter order, quantization scale and rounding. **68 killed, 5 alive**, and
-  every survivor is accounted for:
+  filter order, quantization scale and rounding, MLX porting errors. **70
+  killed, 6 alive**, and every survivor is accounted for:
 
   | Survivor | Why it lives |
   |---|---|
@@ -97,6 +112,7 @@ eligible tensors, 7.83x on the whole model.
   | `KV-7` | Provably equivalent: attention is a permutation-invariant weighted sum, and position is baked into K,V at creation. Measured diff 4.4e-15, identical argmax |
   | `PD-6` | No target. Cross-row isolation is not enforced by a line of code — it is what `@` means on arrays with leading axes |
   | `QT-2` | Provably equivalent: with the max-based scale `s = f32(amax/127)`, `\|w/s\| ≤ 127/(1−2⁻²⁴) ≈ 127.0000076`, which rounds to 127 — the clip never fires. Measured: worst `\|rint(w/s)\|` across all 38 eligible tensors is exactly 127. The clip guards scale bugs (compose it with `QT-1` and it matters), not correct code |
+  | `MX-3` | No target. The Passo 0.3 probe found no operation where MLX broadcasting diverges from NumPy (add, where, keepdims-reductions all NumPy-identical), so there is no line to mutate. The recurring SKIP is the assertion |
 
   Two of the mutations target a *test* rather than the engine, because the one
   test whose job is to detect a difference between two configurations is the one

@@ -11,6 +11,9 @@ dependencies = ["numpy>=2.0"]
 
 [project.optional-dependencies]
 dev = ["pytest>=8.0"]
+# Apple-Silicon only (Metal). Optional on purpose: the NumPy engine and its
+# suite must keep running/skipping cleanly on machines without MLX.
+mlx = ["mlx"]
 
 [tool.setuptools.packages.find]
 include = ["engine*"]

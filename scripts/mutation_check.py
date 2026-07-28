@@ -25,6 +25,7 @@ CACHE = ROOT / "engine" / "cache.py"
 TESTS_BATCHED = ROOT / "tests" / "test_batched.py"
 SAMPLING = ROOT / "engine" / "sampling.py"
 QUANTIZE = ROOT / "engine" / "quantize.py"
+FORWARD_MLX = ROOT / "engine" / "forward_mlx.py"
 
 # (id, file, description, original_snippet, mutated_snippet)
 MUTATIONS = [
@@ -320,6 +321,18 @@ MUTATIONS = [
     ("QT-6", QUANTIZE, "dequantize with the WRONG channel's scale (rolled by one)",
      "    return q_weight.astype(np.float64) * scale.astype(np.float64)",
      "    return q_weight.astype(np.float64) * np.roll(scale, 1, axis=-1).astype(np.float64)"),
+
+    # ---- M6: MLX port -- mutations DIRECTED at porting errors only (the shared
+    # logic is already proven in NumPy; re-mutating it here would be duplicate work) ----
+    ("MX-1", FORWARD_MLX, "silent dtype error: weights land as float16 instead of float32",
+     "    return {k: mx.array(v.astype(np.float32)) for k, v in np_params.items()}",
+     "    return {k: mx.array(v.astype(np.float16)) for k, v in np_params.items()}"),
+    ("MX-2", FORWARD_MLX, "MLX axis error: head split swaps the wrong pair of axes",
+     "        return mx.swapaxes(a.reshape(*lead, T, n_head, d_head), -3, -2)",
+     "        return mx.swapaxes(a.reshape(*lead, T, n_head, d_head), -2, -1)"),
+    ("MX-3", FORWARD_MLX, "MLX broadcasting divergence from NumPy -- NO TARGET, see report",
+     "# no broadcasting divergence found in the Passo 0.3 probe: add/where/keepdims",
+     "# all behave NumPy-identically, so there is no line whose MLX broadcasting"),
 ]
 
 
