@@ -25,6 +25,25 @@ correctly without any of the machinery that trained them.
 Suite: **86 passed**. Mutation artifact: **78 mutations, 72 killed, 6 alive**,
 each survivor justified below.
 
+## Where this repo sits
+
+```mermaid
+graph LR
+    TF["companion training project (private): freezes the trained checkpoint and reference I/O"] -->|"fixtures/*.npz, the parity oracle"| W["weights: loads and transposes into NumPy"]
+    W --> FWD["forward: the GPT forward, batched"]
+    FWD --> GEN["generate: greedy or sampled loop"]
+    SAMP["sampling: temperature / top-k / top-p"] --> GEN
+    FWD --> CACHE["cache: incremental KV steps"]
+    CACHE -->|"fallback past block_size"| GEN
+    QUANT["quantize: int8, symmetric per-channel"] --> FWD
+    FWD --> MLX["forward_mlx: the same forward on Metal, float32"]
+```
+
+This repository assumes the fixtures already exist, generated once and
+elsewhere from the private checkpoint. It produces everything downstream of
+them: the forward, the generation paths, and the proofs that they match the
+oracle.
+
 ## Engineering discipline
 
 - **TDD, red-first, every cycle.** No production code before a failing test.
