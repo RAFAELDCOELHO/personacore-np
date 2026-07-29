@@ -376,6 +376,19 @@ def run_suite():
 
 
 def main():
+    try:
+        import mlx  # noqa: F401
+    except ImportError:
+        print(
+            "=" * 78 + "\n"
+            "WARNING: mlx is not importable with this interpreter.\n"
+            "tests/test_forward_mlx.py will SKIP entirely, so the MX-1/MX-2/MX-3\n"
+            "results in this run are NOT reliable -- MX-1 and MX-2 will show as\n"
+            "SURVIVED without meaning anything. Use an mlx-capable interpreter:\n"
+            "  ~/PersonaCore/.venv/bin/python scripts/mutation_check.py\n"
+            + "=" * 78 + "\n"
+        )
+
     baseline_ok, _ = run_suite()
     if not baseline_ok:
         print("BASELINE IS RED — fix the suite before mutating.")
