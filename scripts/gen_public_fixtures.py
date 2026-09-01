@@ -59,7 +59,7 @@ def fixtures_ready() -> bool:
 
 
 def _stamp_text(url: str, git_sha: str, step: int) -> str:
-    return f"url={url}\ngit_sha={git_sha}\nstep={step}\nwindow=public_arange_257\n"
+    return f"url={url}\ngit_sha={git_sha}\nstep={step}\nwindow=greedy_public_257\n"
 
 
 def ensure_oracle() -> Path:
@@ -115,7 +115,26 @@ def generate_fixtures() -> None:
     model.eval()
     model.double()
 
-    window = public_window(257)
+    # In-distribution public window: one greedy run from a short public seed.
+    # An arithmetic id ladder is in-vocab but not language, so int8-vs-int4
+    # perplexity on it is noise (PPL ~1e4). Generated tokens are public, need
+    # no private val.bin, and are something the model actually assigns mass to.
+    seed = public_window(PROMPT_LEN)
+    prompt = torch.from_numpy(np.ascontiguousarray(seed)).view(1, -1)
+    with torch.no_grad():
+        long_ids = list(pc_generate(model, prompt, max_new_tokens=LONG_NEW, greedy=True))
+    if len(long_ids) < 257 - PROMPT_LEN:
+        raise RuntimeError(f"greedy run produced {len(long_ids)} tokens; need {257 - PROMPT_LEN}")
+    short_ids = long_ids[:SHORT_NEW]
+    eos_run = long_ids[:EOS_MAX_NEW]
+    window = np.concatenate(
+        [seed, np.asarray(long_ids[: 257 - PROMPT_LEN], dtype=np.int64)]
+    )
+    if window.shape != (257,):
+        raise RuntimeError(f"public window shape {window.shape}, expected (257,)")
+    if len(np.unique(window[:256])) <= 50:
+        raise RuntimeError("public window is degenerate (too few unique ids)")
+
     input_x = window[:-1]
     input_y = window[1:]
     idx = torch.from_numpy(np.ascontiguousarray(input_x)).view(1, -1)
@@ -135,12 +154,6 @@ def generate_fixtures() -> None:
 
     FIXTURES.mkdir(parents=True, exist_ok=True)
     np.savez(PARITY, **payload)
-
-    prompt = torch.from_numpy(input_x[:PROMPT_LEN]).view(1, -1)
-    with torch.no_grad():
-        short_ids = list(pc_generate(model, prompt, max_new_tokens=SHORT_NEW, greedy=True))
-        long_ids = list(pc_generate(model, prompt, max_new_tokens=LONG_NEW, greedy=True))
-        eos_run = list(pc_generate(model, prompt, max_new_tokens=EOS_MAX_NEW, greedy=True))
 
     if len(eos_run) <= EOS_STEP:
         raise RuntimeError(

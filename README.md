@@ -132,9 +132,9 @@ make infer
 
 is the clone-fresh path. It uses the public slim checkpoint
 `https://github.com/RAFAELDCOELHO/PersonaCore/releases/download/m1-demo-v1/model_slim.pt`
-and a public deterministic token window. It does not need the private companion
-repository. Measured on that public window against PersonaCore's own GPT
-(float64, `attn_impl="manual"`): logits relative error **2.49e-15**. That is
+and a public greedy-decoded token window. It does not need the private companion
+repository. Measured on that public greedy window against PersonaCore's own GPT
+(float64, `attn_impl="manual"`): logits relative error **2.72e-15**. That is
 the same order as the private-oracle 2.52e-15 in the table above; it is not
 the same measurement (different window), so the table number is left as
 published.
