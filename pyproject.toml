@@ -24,4 +24,5 @@ testpaths = ["tests"]
 pythonpath = ["."]
 markers = [
     "slow: 280-token parity run, ~90% of the suite's wall-clock. Runs in the normal suite; excluded ONLY from the mutation loop, which reruns the suite 54 times. Measured safe: no mutant has a slow test as its only killer.",
+    "public_slim: live m1-demo-v1 slim load. Excluded from the mutation loop (full-model forwards; the npz parity suite already covers the engine).",
 ]

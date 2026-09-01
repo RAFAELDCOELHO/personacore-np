@@ -364,7 +364,7 @@ def run_suite():
     to be a slow test, this flag has to go -- re-measure before assuming it holds.
     """
     proc = subprocess.run(
-        [sys.executable, "-m", "pytest", "-q", "--tb=no", "-rf", "-m", "not slow"],
+        [sys.executable, "-m", "pytest", "-q", "--tb=no", "-rf", "-m", "not slow and not public_slim"],
         cwd=ROOT, capture_output=True, text=True,
     )
     failed = [
