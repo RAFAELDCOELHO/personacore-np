@@ -1,8 +1,19 @@
 # personacore-np
 
+Public proof (fresh clone, no private companion repo):
+
+```bash
+make infer
+```
+
+That downloads PersonaCore release `m1-demo-v1` `model_slim.pt` (~55.6 MB) if
+missing, builds public fixtures from it, and runs pytest. Parity tests run;
+they do not skip for absent private `fixtures/*.npz`.
+
 An inference engine for a 13.9M-parameter GPT, written from scratch: pure NumPy
-on the forward path, with an optional MLX backend for the Apple GPU. No PyTorch,
-no framework. Arrays, and the arithmetic the model needs at inference time.
+on the forward path, with an optional MLX backend for the Apple GPU. No PyTorch
+on the forward path, no framework. Arrays, and the arithmetic the model needs
+at inference time.
 
 ## Why it exists
 
@@ -115,26 +126,35 @@ difference.
 
 ## Reproduction
 
-The parity fixtures (~157 MB of `.npz`) derive from a trained checkpoint that
-lives in a private companion repository. Without access to it, this suite runs
+```bash
+make infer
+```
+
+is the clone-fresh path. It uses the public slim checkpoint
+`https://github.com/RAFAELDCOELHO/PersonaCore/releases/download/m1-demo-v1/model_slim.pt`
+and a public greedy-decoded token window. It does not need the private companion
+repository. Measured on that public greedy window against PersonaCore's own GPT
+(float64, `attn_impl="manual"`): logits relative error **2.72e-15**. That is
+the same order as the private-oracle 2.52e-15 in the table above; it is not
+the same measurement (different window), so the table number is left as
+published.
+
+The older parity fixtures (~157 MB of `.npz`) from a private companion dump
+are optional. Without `make infer` and without those private files, a bare
+`pytest` used to report
 
 ```
 30 passed, 56 skipped
 ```
 
-The pure-NumPy unit tests pass, and every parity test skips with a message
-naming the generator that would produce its fixture. The parity numbers quoted
-above are real, but you cannot re-derive them without the private checkpoint.
-That is the honest limit of what this repository reproduces on its own. With
-the fixtures in place, the full suite is `86 passed`.
-
-The MLX tests additionally need Apple Silicon and the optional extra
-(`pip install -e ".[mlx]"`); without it they skip.
+That skip gap is what `make infer` closes. MLX tests still skip without Apple
+Silicon and `pip install -e ".[mlx]"`.
 
 ## Running it
 
 ```bash
+make infer                      # public slim download + fixtures + pytest
 pip install -e ".[dev]"
-python -m pytest                    # 86 passed (with fixtures), ~17s
+python -m pytest                # after fixtures exist: numpy-only
 python scripts/mutation_check.py    # 78 mutations, 72 killed, 6 alive, ~6min
 ```
