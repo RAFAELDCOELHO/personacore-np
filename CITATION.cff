@@ -1,0 +1,23 @@
+cff-version: 1.2.0
+message: If you use this software, please cite it using these metadata.
+type: software
+title: personacore-np
+authors:
+  - family-names: Coelho
+    given-names: Rafael D.
+    email: rafael.d.cooelho@gmail.com
+license: MIT
+repository-code: "https://github.com/RAFAELDCOELHO/personacore-np"
+url: "https://github.com/RAFAELDCOELHO/personacore-np"
+abstract: >-
+  personacore-np is a from-scratch 13.9M GPT inference engine in pure NumPy,
+  with an optional MLX backend for the Apple GPU. No PyTorch at serve time.
+  A fresh clone can reproduce the public proof with make infer, which builds
+  fixtures from the public slim checkpoint m1-demo-v1 and runs the suite.
+keywords:
+  - NumPy
+  - GPT
+  - inference
+  - MLX
+  - from-scratch
+date-released: 2026-07-28
